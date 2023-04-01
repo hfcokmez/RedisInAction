@@ -43,7 +43,7 @@ public class Chapter5Controller : ControllerBase
     }
     
     [HttpPost("GetCounter")]
-    public async Task<IActionResult>  (GetCounterDTO getCounter)
+    public async Task<IActionResult> GetCounter(GetCounterDTO getCounter)
     {
         var result = await _chapter5.GetCounterAsync(getCounter.Name, getCounter.Precision);
         return Ok(result);
