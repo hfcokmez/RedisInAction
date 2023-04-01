@@ -9,7 +9,8 @@ namespace RedisInAction.Services
     {
         private Dictionary<LogLevel, string> Severity;
         private readonly RedisService _redisService;
-
+        private readonly int[] _precision ={1, 5, 60, 300, 3600, 18000, 86400};
+        
         public Chapter5(RedisService redisService)
         {
             _redisService = redisService;
@@ -96,5 +97,39 @@ namespace RedisInAction.Services
             }
         }
         
+        public async Task<bool> UpdateCounterAsync(string name, int count = 1, long? now = null)
+        {
+            var nowUnix = now ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var db = _redisService.GetDatabase();
+            var transaction = db.CreateTransaction();
+
+            foreach (var prec in _precision)
+            {
+                long pnow = (nowUnix / prec) * prec;
+                string hash = $"{prec}:{name}";
+                transaction.SortedSetAddAsync("known:", hash, 0);
+                transaction.HashIncrementAsync($"count:{hash}", pnow.ToString(), count);
+            }
+
+            var result = await transaction.ExecuteAsync();
+            return result;
+        }
+        
+        public async Task<List<Tuple<int, int>>> GetCounterAsync(string name, int precision)
+        {
+            string hash = $"{precision}:{name}";
+            var db = _redisService.GetDatabase();
+            var data = await db.HashGetAllAsync($"count:{hash}");
+            var results = new List<Tuple<int, int>>();
+
+            foreach (var entry in data)
+            {
+                int key = int.Parse(entry.Name);
+                int value = int.Parse(entry.Value);
+                results.Add(new Tuple<int, int>(key, value));
+            }
+            results.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+            return results;
+        }
     }
 }
