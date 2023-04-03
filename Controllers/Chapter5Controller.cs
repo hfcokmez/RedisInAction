@@ -48,4 +48,11 @@ public class Chapter5Controller : ControllerBase
         var result = await _chapter5.GetCounterAsync(getCounter.Name, getCounter.Precision);
         return Ok(result);
     }
+    
+    [HttpPost("CleanCounter")]
+    public async Task<IActionResult> CleanCounter()
+    {
+        await _chapter5.CleanCountersAsync();
+        return Ok();
+    }
 }

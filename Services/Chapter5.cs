@@ -9,8 +9,8 @@ namespace RedisInAction.Services
     {
         private Dictionary<LogLevel, string> Severity;
         private readonly RedisService _redisService;
-        private readonly int[] _precision ={1, 5, 60, 300, 3600, 18000, 86400};
-        
+        private readonly int[] _precision = {1, 5, 60, 300, 3600, 18000, 86400};
+
         public Chapter5(RedisService redisService)
         {
             _redisService = redisService;
@@ -107,7 +107,7 @@ namespace RedisInAction.Services
             {
                 long pnow = (nowUnix / prec) * prec;
                 string hash = $"{prec}:{name}";
-                transaction.SortedSetAddAsync("known:", hash, 0);
+                transaction.SortedSetAddAsync("known:", hash, prec);
                 transaction.HashIncrementAsync($"count:{hash}", pnow.ToString(), count);
             }
 
@@ -130,6 +130,61 @@ namespace RedisInAction.Services
             }
             results.Sort((a, b) => a.Item1.CompareTo(b.Item1));
             return results;
+        }
+
+        private const int SampleCount = 100;
+        private bool quit = false;
+        
+        public async Task CleanCountersAsync()
+        {
+            var db = _redisService.GetDatabase();
+            int passes = 0;
+            while (!quit)
+            {
+                long start = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                int index = 0;
+                while (index < await db.SortedSetLengthAsync("known:"))
+                {
+                    var hashSet = await db.SortedSetRangeByRankAsync("known:", index, index);
+                    index++;
+                    if (hashSet.Length == 0)
+                    {
+                        break;
+                    }
+                    string hash = hashSet[0].ToString();
+                    int prec = int.Parse(hash.Substring(0, hash.IndexOf(':')));
+                    int bprec = (int)Math.Floor(prec / 60.0) != 0 ? (int)Math.Floor(prec / 60.0) : 1;
+
+                    if (bprec == 0)
+                    {
+                        bprec = 1;
+                    }
+                    if (passes % bprec != 0)
+                    {
+                        continue;
+                    }
+                    string hkey = "count:" + hash;
+                    long cutoff = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - SampleCount * prec;
+                    RedisValue[] samples = db.HashKeys(hkey);
+                    Array.Sort(samples);
+                    int remove = Array.BinarySearch(samples, cutoff.ToString());
+                    if (remove >= 0)
+                    {
+                        db.HashDelete(hkey, samples[0..remove]);
+                        if (remove == samples.Length)
+                        {
+                            ITransaction trans = db.CreateTransaction();
+                            trans.AddCondition(Condition.KeyNotExists(hkey));
+                            if (db.HashLength(hkey) == 0)
+                            {
+                                trans.SortedSetRemoveAsync("known:", hash);
+                                await trans.ExecuteAsync();
+                                index--;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
